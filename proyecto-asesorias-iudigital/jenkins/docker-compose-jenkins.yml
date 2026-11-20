@@ -1,0 +1,26 @@
+# ==============================================================================
+# Docker Compose para levantar Servidor Jenkins LTS con soporte Docker + Node.js
+# Uso: docker compose -f jenkins/docker-compose-jenkins.yml up -d
+# Interfaz Web de Jenkins: http://localhost:8080
+# ==============================================================================
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: iudigital-jenkins-cd
+    restart: unless-stopped
+    user: root
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - iudigital-jenkins-net
+
+networks:
+  iudigital-jenkins-net:
+    driver: bridge
+
+volumes:
+  jenkins_home:

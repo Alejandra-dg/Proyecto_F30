@@ -1,0 +1,69 @@
+# ==============================================================================
+# Orquestación Docker Compose: Arquitectura Desacoplada (Microservicios) + MongoDB
+# Uso: docker compose -f docker/docker-compose.desacoplado.yml up -d --build
+# ==============================================================================
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: iudigital-mongo-desacoplado
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_desacoplado_data:/data/db
+    networks:
+      - iudigital-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  servicio-catalogos:
+    build:
+      context: ../backend-desacoplado/servicio-catalogos
+      dockerfile: Dockerfile
+    image: iudigital-servicio-catalogos:local
+    container_name: iudigital-servicio-catalogos
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - MONGO_URI=mongodb://mongo:27017/asesorias_iudigital
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-net
+
+  servicio-proyectos:
+    build:
+      context: ../backend-desacoplado/servicio-proyectos
+      dockerfile: Dockerfile
+    image: iudigital-servicio-proyectos:local
+    container_name: iudigital-servicio-proyectos
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      - NODE_ENV=production
+      - PORT=4002
+      - MONGO_URI=mongodb://mongo:27017/asesorias_iudigital
+      - CATALOGOS_SERVICE_URL=http://servicio-catalogos:4001
+      - CATALOGOS_TIMEOUT_MS=4000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      servicio-catalogos:
+        condition: service_started
+    networks:
+      - iudigital-net
+
+networks:
+  iudigital-net:
+    driver: bridge
+
+volumes:
+  mongo_desacoplado_data:

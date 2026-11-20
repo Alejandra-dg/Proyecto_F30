@@ -1,0 +1,153 @@
+// =============================================================================
+// Jenkinsfile Declarativo - Pipeline de Despliegue Continuo (CD)
+// Caso de Estudio 3 - Actividad Énfasis 2a: Tecnologías Web (IUDigital)
+// Etapas: Checkout -> Lint & Test -> Docker Build -> Docker Hub Push -> Deploy CD -> Smoke Test
+// =============================================================================
+
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'ARQUITECTURA_DESPLIEGUE',
+            choices: ['ambas', 'desacoplado', 'monolito'],
+            description: 'Seleccione la arquitectura que desea construir, publicar y desplegar.'
+        )
+        string(
+            name: 'DOCKERHUB_NAMESPACE',
+            defaultValue: 'alejandroiudigital',
+            description: 'Usuario o namespace de Docker Hub donde se publicarán las imágenes.'
+        )
+    }
+
+    environment {
+        DOCKERHUB_CREDENTIALS_ID = 'dockerhub-credentials'
+        IMAGE_MONOLITO           = "${params.DOCKERHUB_NAMESPACE}/iudigital-monolito"
+        IMAGE_CATALOGOS          = "${params.DOCKERHUB_NAMESPACE}/iudigital-servicio-catalogos"
+        IMAGE_PROYECTOS          = "${params.DOCKERHUB_NAMESPACE}/iudigital-servicio-proyectos"
+        IMAGE_TAG                = "${env.BUILD_NUMBER}"
+    }
+
+    options {
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+        stage('1. Checkout SCM') {
+            steps {
+                echo "=== [Stage 1] Obteniendo código fuente del repositorio ==="
+                checkout scm
+                sh 'git status -s || true'
+            }
+        }
+
+        stage('2. Lint & Test (Validación)') {
+            steps {
+                echo "=== [Stage 2] Verificando sintaxis de Node.js en Monolito y Microservicios ==="
+                sh '''
+                    node --check backend-monolito/src/index.js
+                    node --check backend-monolito/src/seed.js
+                    node --check backend-desacoplado/servicio-catalogos/src/index.js
+                    node --check backend-desacoplado/servicio-proyectos/src/index.js
+                    node --check scripts/seed_all.js
+                '''
+            }
+        }
+
+        stage('3. Build de Imágenes Docker') {
+            steps {
+                echo "=== [Stage 3] Construyendo imágenes Docker optimizadas (Alpine) ==="
+                script {
+                    if (params.ARQUITECTURA_DESPLIEGUE in ['ambas', 'monolito']) {
+                        sh """
+                            docker build -t ${IMAGE_MONOLITO}:${IMAGE_TAG} -t ${IMAGE_MONOLITO}:latest ./backend-monolito
+                        """
+                    }
+                    if (params.ARQUITECTURA_DESPLIEGUE in ['ambas', 'desacoplado']) {
+                        sh """
+                            docker build -t ${IMAGE_CATALOGOS}:${IMAGE_TAG} -t ${IMAGE_CATALOGOS}:latest ./backend-desacoplado/servicio-catalogos
+                            docker build -t ${IMAGE_PROYECTOS}:${IMAGE_TAG} -t ${IMAGE_PROYECTOS}:latest ./backend-desacoplado/servicio-proyectos
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('4. Login y Publicación en Docker Hub') {
+            steps {
+                echo "=== [Stage 4] Autenticando en Docker Hub y publicando imágenes ==="
+                withCredentials([usernamePassword(
+                    credentialsId: "${DOCKERHUB_CREDENTIALS_ID}",
+                    usernameVariable: 'DOCKERHUB_USER',
+                    passwordVariable: 'DOCKERHUB_PASS'
+                )]) {
+                    sh '''
+                        echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+                    '''
+                    script {
+                        if (params.ARQUITECTURA_DESPLIEGUE in ['ambas', 'monolito']) {
+                            sh """
+                                docker push ${IMAGE_MONOLITO}:${IMAGE_TAG}
+                                docker push ${IMAGE_MONOLITO}:latest
+                            """
+                        }
+                        if (params.ARQUITECTURA_DESPLIEGUE in ['ambas', 'desacoplado']) {
+                            sh """
+                                docker push ${IMAGE_CATALOGOS}:${IMAGE_TAG}
+                                docker push ${IMAGE_CATALOGOS}:latest
+                                docker push ${IMAGE_PROYECTOS}:${IMAGE_TAG}
+                                docker push ${IMAGE_PROYECTOS}:latest
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('5. Continuous Deployment (CD) con Docker Compose') {
+            steps {
+                echo "=== [Stage 5] Ejecutando Despliegue Continuo (CD) con Docker Compose ==="
+                sh """
+                    DOCKERHUB_USER=${params.DOCKERHUB_NAMESPACE} \
+                    IMAGE_TAG=${IMAGE_TAG} \
+                    ARQUITECTURA=${params.ARQUITECTURA_DESPLIEGUE} \
+                    bash scripts/deploy_cd.sh
+                """
+            }
+        }
+
+        stage('6. Smoke Test & Verificación de Despliegue') {
+            steps {
+                echo "=== [Stage 6] Verificando endpoints /health de los servicios desplegados ==="
+                script {
+                    sh 'sleep 6'
+                    if (params.ARQUITECTURA_DESPLIEGUE in ['ambas', 'monolito']) {
+                        sh 'curl -fsS http://localhost:4000/health'
+                    }
+                    if (params.ARQUITECTURA_DESPLIEGUE in ['ambas', 'desacoplado']) {
+                        sh '''
+                            curl -fsS http://localhost:4001/health
+                            curl -fsS http://localhost:4002/health
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "=== [Post] Cerrando sesión de Docker Hub y limpiando imágenes dangling ==="
+            sh 'docker logout || true'
+            sh 'docker image prune -f || true'
+        }
+        success {
+            echo "✅ [ÉXITO] Pipeline CD finalizado: Imágenes publicadas en Docker Hub y contenedores desplegados."
+        }
+        failure {
+            echo "❌ [FALLO] El pipeline de Despliegue Continuo encontró un error. Revise los logs de la etapa fallida."
+        }
+    }
+}

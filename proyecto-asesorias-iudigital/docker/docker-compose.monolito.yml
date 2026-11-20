@@ -1,0 +1,46 @@
+# ==============================================================================
+# Orquestación Docker Compose: Arquitectura Monolítica + MongoDB
+# Uso: docker compose -f docker/docker-compose.monolito.yml up -d --build
+# ==============================================================================
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: iudigital-mongo-monolito
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_monolito_data:/data/db
+    networks:
+      - iudigital-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  monolito-app:
+    build:
+      context: ../backend-monolito
+      dockerfile: Dockerfile
+    image: iudigital-monolito:local
+    container_name: iudigital-monolito-app
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - MONGO_URI=mongodb://mongo:27017/asesorias_iudigital
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-net
+
+networks:
+  iudigital-net:
+    driver: bridge
+
+volumes:
+  mongo_monolito_data:

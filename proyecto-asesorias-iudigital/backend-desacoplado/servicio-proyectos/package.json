@@ -1,0 +1,28 @@
+{
+  "name": "iudigital-servicio-proyectos",
+  "version": "1.0.0",
+  "description": "Microservicio Desacoplado de Proyectos de Asesoría Académica (Componente de Mayor Demanda) - IUDigital",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "keywords": [
+    "iudigital",
+    "microservicio",
+    "proyectos",
+    "desacoplado",
+    "express",
+    "mongodb"
+  ],
+  "author": "Arquitectura de Software - IUDigital",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mongoose": "^8.3.4",
+    "morgan": "^1.10.0"
+  }
+}

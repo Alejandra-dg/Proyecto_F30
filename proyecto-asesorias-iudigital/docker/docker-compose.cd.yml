@@ -1,0 +1,80 @@
+# ==============================================================================
+# Orquestación de Despliegue Continuo (CD) usada por Jenkins Pipeline
+# Descarga directamente las imágenes publicadas en Docker Hub
+# Variables: DOCKERHUB_USER (ej: alejandroiudigital) e IMAGE_TAG (ej: latest)
+# ==============================================================================
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: iudigital-mongo-cd
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_cd_data:/data/db
+    networks:
+      - iudigital-cd-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  monolito-app:
+    image: ${DOCKERHUB_USER:-alejandroiudigital}/iudigital-monolito:${IMAGE_TAG:-latest}
+    container_name: iudigital-monolito-cd
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - MONGO_URI=mongodb://mongo:27017/asesorias_iudigital
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-cd-net
+
+  servicio-catalogos:
+    image: ${DOCKERHUB_USER:-alejandroiudigital}/iudigital-servicio-catalogos:${IMAGE_TAG:-latest}
+    container_name: iudigital-catalogos-cd
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - MONGO_URI=mongodb://mongo:27017/asesorias_iudigital
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-cd-net
+
+  servicio-proyectos:
+    image: ${DOCKERHUB_USER:-alejandroiudigital}/iudigital-servicio-proyectos:${IMAGE_TAG:-latest}
+    container_name: iudigital-proyectos-cd
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      - NODE_ENV=production
+      - PORT=4002
+      - MONGO_URI=mongodb://mongo:27017/asesorias_iudigital
+      - CATALOGOS_SERVICE_URL=http://servicio-catalogos:4001
+      - CATALOGOS_TIMEOUT_MS=4000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      servicio-catalogos:
+        condition: service_started
+    networks:
+      - iudigital-cd-net
+
+networks:
+  iudigital-cd-net:
+    driver: bridge
+
+volumes:
+  mongo_cd_data:
